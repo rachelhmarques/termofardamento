@@ -3,7 +3,7 @@ import pandas as pd
 import io, re, os, zipfile, docx, datetime, shutil
 from unidecode import unidecode
 
-# ---------- Funções auxiliares (as mesmas do Colab) ----------
+# ---------- Funções auxiliares (sem alterações) ----------
 
 def normalize(s):
     s = str(s)
@@ -106,7 +106,6 @@ Esta ferramenta automatiza a criação de termos de recebimento de fardamento. S
 3.  Clique em **"Gerar Documentos"** e aguarde o botão de download.
 """)
 
-# Limpa os dados do download se os arquivos forem alterados
 if 'last_excel' not in st.session_state: st.session_state.last_excel = None
 if 'last_template' not in st.session_state: st.session_state.last_template = None
 
@@ -117,14 +116,14 @@ with col1:
 with col2:
     uploaded_template = st.file_uploader("2. Faça o upload do seu modelo (.docx)", type=["docx"])
 
-# Reseta o botão de download se um novo arquivo for enviado
-if uploaded_excel and uploaded_excel.id != st.session_state.last_excel:
+# --- CORREÇÃO AQUI: trocado .id por .file_id ---
+if uploaded_excel and uploaded_excel.file_id != st.session_state.last_excel:
     if 'zip_data' in st.session_state: del st.session_state.zip_data
-    st.session_state.last_excel = uploaded_excel.id
-if uploaded_template and uploaded_template.id != st.session_state.last_template:
+    st.session_state.last_excel = uploaded_excel.file_id
+if uploaded_template and uploaded_template.file_id != st.session_state.last_template:
     if 'zip_data' in st.session_state: del st.session_state.zip_data
-    st.session_state.last_template = uploaded_template.id
-
+    st.session_state.last_template = uploaded_template.file_id
+# --- FIM DA CORREÇÃO ---
 
 if uploaded_excel and uploaded_template:
     try:
@@ -138,8 +137,6 @@ if uploaded_excel and uploaded_template:
         df_for_selection = None
         cols_for_selection = None
         
-        # --- LÓGICA CORRIGIDA ---
-        # Mostra o seletor de aluno ANTES do botão "Gerar"
         if mode == "Apenas um aluno":
             raw = pd.read_excel(xls, sheet_name=selected_sheet, header=None)
             hdr = detect_header_row(raw)
@@ -155,13 +152,11 @@ if uploaded_excel and uploaded_template:
             else:
                 st.warning("Não foi possível detectar o cabeçalho para listar os alunos.")
 
-        # O botão "Gerar" agora aciona o processamento
         if st.button("🚀 Gerar Documentos"):
             with st.spinner("Analisando planilha e gerando documentos... Por favor, aguarde."):
                 rows_to_process = []
                 df, cols = None, None
 
-                # Processa turma inteira
                 if mode == "Turma inteira":
                     raw = pd.read_excel(xls, sheet_name=selected_sheet, header=None)
                     hdr = detect_header_row(raw)
@@ -172,7 +167,6 @@ if uploaded_excel and uploaded_template:
                     df = df[df[cols["ALUNO"]].notna()].copy()
                     rows_to_process = [row for _, row in df.iterrows()]
                 
-                # Processa apenas um aluno (usa a seleção feita ANTES do clique)
                 elif mode == "Apenas um aluno":
                     if selected_student_name and selected_student_name != "Selecione um aluno...":
                         df = df_for_selection
@@ -212,7 +206,7 @@ if uploaded_excel and uploaded_template:
                 shutil.rmtree(out_folder)
                 st.session_state.zip_data = zip_buffer.getvalue()
                 st.session_state.zip_filename = zip_name
-                st.experimental_rerun() # Força o recarregamento para mostrar o botão de download
+                st.experimental_rerun()
 
     except Exception as e:
         st.error(f"Ocorreu um erro ao processar os arquivos: {e}")
@@ -223,5 +217,5 @@ if 'zip_data' in st.session_state:
          data=st.session_state.zip_data,
          file_name=st.session_state.zip_filename,
          mime="application/zip",
-         on_click=lambda: st.session_state.pop('zip_data', None) # Limpa o botão após o clique
+         on_click=lambda: st.session_state.pop('zip_data', None)
      )

@@ -116,14 +116,13 @@ with col1:
 with col2:
     uploaded_template = st.file_uploader("2. Faça o upload do seu modelo (.docx)", type=["docx"])
 
-# --- CORREÇÃO AQUI: trocado .id por .file_id ---
 if uploaded_excel and uploaded_excel.file_id != st.session_state.last_excel:
     if 'zip_data' in st.session_state: del st.session_state.zip_data
     st.session_state.last_excel = uploaded_excel.file_id
 if uploaded_template and uploaded_template.file_id != st.session_state.last_template:
     if 'zip_data' in st.session_state: del st.session_state.zip_data
     st.session_state.last_template = uploaded_template.file_id
-# --- FIM DA CORREÇÃO ---
+
 
 if uploaded_excel and uploaded_template:
     try:
@@ -206,7 +205,8 @@ if uploaded_excel and uploaded_template:
                 shutil.rmtree(out_folder)
                 st.session_state.zip_data = zip_buffer.getvalue()
                 st.session_state.zip_filename = zip_name
-                st.experimental_rerun()
+                # --- CORREÇÃO AQUI: trocado st.experimental_rerun() por st.rerun() ---
+                st.rerun()
 
     except Exception as e:
         st.error(f"Ocorreu um erro ao processar os arquivos: {e}")

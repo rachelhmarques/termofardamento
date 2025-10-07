@@ -100,19 +100,31 @@ st.set_page_config(layout="wide")
 st.title("Gerador de Termos de Recebimento 📄")
 
 st.markdown("""
-Esta ferramenta automatiza a criação de termos de recebimento de fardamento.
-Siga os passos abaixo:
-1.  **Faça o upload** da planilha de alunos (.xlsx).
-2.  **Faça o upload** do documento modelo (.docx).
-3.  **Selecione** a turma e o modo de geração.
-4.  Clique em **"Gerar Documentos"** e aguarde o botão de download.
+Esta ferramenta automatiza a criação de termos de recebimento de fardamento. Siga os passos:
+1.  **Faça o upload** da planilha e do modelo.
+2.  **Selecione** a turma e o modo de geração.
+3.  Clique em **"Gerar Documentos"** e aguarde o botão de download.
 """)
+
+# Limpa os dados do download se os arquivos forem alterados
+if 'last_excel' not in st.session_state: st.session_state.last_excel = None
+if 'last_template' not in st.session_state: st.session_state.last_template = None
+
 
 col1, col2 = st.columns(2)
 with col1:
     uploaded_excel = st.file_uploader("1. Faça o upload da sua planilha (.xlsx)", type=["xlsx"])
 with col2:
     uploaded_template = st.file_uploader("2. Faça o upload do seu modelo (.docx)", type=["docx"])
+
+# Reseta o botão de download se um novo arquivo for enviado
+if uploaded_excel and uploaded_excel.id != st.session_state.last_excel:
+    if 'zip_data' in st.session_state: del st.session_state.zip_data
+    st.session_state.last_excel = uploaded_excel.id
+if uploaded_template and uploaded_template.id != st.session_state.last_template:
+    if 'zip_data' in st.session_state: del st.session_state.zip_data
+    st.session_state.last_template = uploaded_template.id
+
 
 if uploaded_excel and uploaded_template:
     try:
@@ -122,36 +134,55 @@ if uploaded_excel and uploaded_template:
         selected_sheet = st.selectbox("3. Selecione a Turma (Aba):", sheet_names)
         mode = st.radio("4. Escolha o modo de geração:", ("Turma inteira", "Apenas um aluno"), horizontal=True)
 
+        selected_student_name = None
+        df_for_selection = None
+        cols_for_selection = None
+        
+        # --- LÓGICA CORRIGIDA ---
+        # Mostra o seletor de aluno ANTES do botão "Gerar"
+        if mode == "Apenas um aluno":
+            raw = pd.read_excel(xls, sheet_name=selected_sheet, header=None)
+            hdr = detect_header_row(raw)
+            if hdr is not None:
+                df_for_selection = pd.read_excel(xls, sheet_name=selected_sheet, header=hdr)
+                cols_for_selection = map_columns(df_for_selection)
+                if cols_for_selection["ALUNO"]:
+                    df_for_selection = df_for_selection[df_for_selection[cols_for_selection["ALUNO"]].notna()].copy()
+                    student_list = ["Selecione um aluno..."] + df_for_selection[cols_for_selection["ALUNO"]].tolist()
+                    selected_student_name = st.selectbox("5. Selecione o Aluno:", student_list)
+                else:
+                    st.warning("Não foi possível encontrar a coluna 'ALUNO' para a seleção individual.")
+            else:
+                st.warning("Não foi possível detectar o cabeçalho para listar os alunos.")
+
+        # O botão "Gerar" agora aciona o processamento
         if st.button("🚀 Gerar Documentos"):
             with st.spinner("Analisando planilha e gerando documentos... Por favor, aguarde."):
-                raw = pd.read_excel(xls, sheet_name=selected_sheet, header=None)
-                hdr = detect_header_row(raw)
-                if hdr is None:
-                    st.error("Não foi possível detectar a linha de cabeçalho na planilha. Verifique o arquivo.")
-                    st.stop()
-                
-                df = pd.read_excel(xls, sheet_name=selected_sheet, header=hdr)
-                cols = map_columns(df)
-                if cols["ALUNO"] is None:
-                    st.error("Coluna de ALUNO não encontrada. Verifique os nomes das colunas.")
-                    st.stop()
-                
-                df = df[df[cols["ALUNO"]].notna()].copy()
-                serie_ano, turma_ano = parse_sheet_name_nice(selected_sheet)
-                
                 rows_to_process = []
-                if mode == "Apenas um aluno":
-                    student_list = ["Selecione um aluno..."] + df[cols["ALUNO"]].tolist()
-                    selected_student_name = st.selectbox("5. Selecione o Aluno:", student_list)
-                    if selected_student_name != "Selecione um aluno...":
-                        rows_to_process.append(df[df[cols["ALUNO"]] == selected_student_name].iloc[0])
-                else:
+                df, cols = None, None
+
+                # Processa turma inteira
+                if mode == "Turma inteira":
+                    raw = pd.read_excel(xls, sheet_name=selected_sheet, header=None)
+                    hdr = detect_header_row(raw)
+                    if hdr is None: st.error("Cabeçalho não detectado."); st.stop()
+                    df = pd.read_excel(xls, sheet_name=selected_sheet, header=hdr)
+                    cols = map_columns(df)
+                    if not cols["ALUNO"]: st.error("Coluna 'ALUNO' não encontrada."); st.stop()
+                    df = df[df[cols["ALUNO"]].notna()].copy()
                     rows_to_process = [row for _, row in df.iterrows()]
+                
+                # Processa apenas um aluno (usa a seleção feita ANTES do clique)
+                elif mode == "Apenas um aluno":
+                    if selected_student_name and selected_student_name != "Selecione um aluno...":
+                        df = df_for_selection
+                        cols = cols_for_selection
+                        rows_to_process.append(df[df[cols["ALUNO"]] == selected_student_name].iloc[0])
 
                 if not rows_to_process:
-                    st.warning("Nenhum aluno selecionado para processar.")
-                    st.stop()
+                    st.warning("Nenhum aluno selecionado para processar."); st.stop()
 
+                serie_ano, turma_ano = parse_sheet_name_nice(selected_sheet)
                 out_folder = f"termos_{normalize(selected_sheet)}".replace("/", "_")
                 if os.path.exists(out_folder): shutil.rmtree(out_folder)
                 os.makedirs(out_folder, exist_ok=True)
@@ -168,28 +199,29 @@ if uploaded_excel and uploaded_template:
                     mapping = build_mapping(nome, matricula, cpf, rg, dn, filiacao, serie_ano, turma_ano)
                     replace_placeholders_doc(doc, mapping)
 
-                    safe_nome = re.sub(r"[\\/]+", "_", nome).strip().replace(" ", "_")
+                    safe_nome = re.sub(r"[\/\\]+", "_", nome).strip().replace(" ", "_")
                     out_path = os.path.join(out_folder, f"Termo_{safe_nome}.docx")
                     doc.save(out_path)
                 
-                # Compactar e preparar para download
                 zip_name = f"termos_{normalize(selected_sheet)}.zip".replace("/", "_")
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
                     for fname in os.listdir(out_folder):
                         zf.write(os.path.join(out_folder, fname), arcname=fname)
                 
-                shutil.rmtree(out_folder) # Limpa a pasta temporária
+                shutil.rmtree(out_folder)
                 st.session_state.zip_data = zip_buffer.getvalue()
                 st.session_state.zip_filename = zip_name
-
-        if 'zip_data' in st.session_state:
-             st.download_button(
-                 label="✅ Clique aqui para baixar o arquivo ZIP",
-                 data=st.session_state.zip_data,
-                 file_name=st.session_state.zip_filename,
-                 mime="application/zip",
-             )
+                st.experimental_rerun() # Força o recarregamento para mostrar o botão de download
 
     except Exception as e:
         st.error(f"Ocorreu um erro ao processar os arquivos: {e}")
+
+if 'zip_data' in st.session_state:
+     st.download_button(
+         label="✅ Clique aqui para baixar o arquivo ZIP",
+         data=st.session_state.zip_data,
+         file_name=st.session_state.zip_filename,
+         mime="application/zip",
+         on_click=lambda: st.session_state.pop('zip_data', None) # Limpa o botão após o clique
+     )
